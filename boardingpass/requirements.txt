@@ -1,0 +1,6 @@
+fastapi
+uvicorn
+python-multipart
+anthropic
+PyPDF2
+python-dotenv

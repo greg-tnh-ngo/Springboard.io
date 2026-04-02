@@ -1,0 +1,22 @@
+ACME Corp IT Onboarding Guide
+LAPTOP SETUP
+Your laptop will be staged and ready on your first day at your desk or shipped to your home.
+Contact it@acmecorp.com or post in Slack #it-support for any setup issues.
+Standard setup issues are resolved within 1 business day.
+For urgent issues on day 1: call the IT hotline at ext. 5000.
+SOFTWARE ACCESS
+You will receive email invitations to Slack, Notion, and Google Workspace within 24 hours of your start date.
+For additional software: submit a request at helpdesk.acmecorp.com — approval takes 1-3 business days.
+Licensed software (Adobe, Figma, etc.) requires department head approval before IT can provision.
+VPN
+Download Cisco AnyConnect from software.acmecorp.com/vpn.
+Your VPN credentials are sent to your personal email the business day before your start date.
+VPN is required for accessing internal systems outside the office.
+PASSWORD POLICY
+Passwords must be at least 12 characters, include a number and a symbol.
+Passwords must be changed every 90 days — you will receive a reminder 7 days before expiry.
+Use the company 1Password account for all credential management. Never store passwords in plain text.
+SECURITY
+Never share your credentials with anyone, including IT staff (we will never ask).
+Report suspicious emails to security@acmecorp.com immediately.
+Lock your screen (Win+L or Cmd+Ctrl+Q) whenever you leave your desk.

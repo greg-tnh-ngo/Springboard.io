@@ -1,0 +1,1373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BoardingPass</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+@keyframes typing { 0%,80%,100%{transform:scale(0.6);opacity:.4} 40%{transform:scale(1);opacity:1} }
+@keyframes slideUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
+@keyframes slideRight { from{opacity:0;transform:translateX(16px)} to{opacity:1;transform:translateX(0)} }
+@keyframes shake { 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-4px)} 40%,80%{transform:translateX(4px)} }
+@keyframes spin { to{transform:rotate(360deg)} }
+.dot { animation: typing 1.4s infinite ease-in-out; }
+.dot:nth-child(2){animation-delay:.2s}
+.dot:nth-child(3){animation-delay:.4s}
+.fadeUp { animation: slideUp .25s ease-out; }
+.fadeRight { animation: slideRight .25s ease-out; }
+.shake { animation: shake .35s ease-in-out; }
+.spinner { animation: spin .7s linear infinite; display:inline-block; border:2px solid rgba(255,255,255,.3); border-top-color:#fff; border-radius:50%; width:14px; height:14px; }
+.spinner-dark { border-color:rgba(0,0,0,.15); border-top-color:#4f46e5; }
+.bar { transition: width .6s cubic-bezier(.4,0,.2,1); }
+.ring { transition: stroke-dashoffset 1s ease; }
+</style>
+</head>
+<body class="bg-gray-50 min-h-screen text-sm">
+
+<!-- Toast container -->
+<div id="toasts" class="fixed top-4 right-4 z-50 flex flex-col gap-2 pointer-events-none max-w-xs w-full"></div>
+
+<!-- Offline banner -->
+<div id="offline-banner" class="fixed top-0 inset-x-0 z-50 bg-amber-500 text-white text-center text-xs py-2 font-medium hidden">
+  You're offline — some features may not work until you reconnect.
+</div>
+
+<!-- Pulse Modal (blocking) -->
+<div id="pulse-modal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
+  <div class="bg-white rounded-2xl w-full max-w-lg p-6 sm:p-8 shadow-2xl fadeUp">
+    <div class="flex items-center gap-3 mb-6">
+      <div class="w-10 h-10 bg-indigo-100 rounded-xl flex items-center justify-center flex-shrink-0">
+        <svg class="w-5 h-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+      </div>
+      <div>
+        <h2 class="font-bold text-gray-900 text-base">Quick Check-in</h2>
+        <p id="pulse-subtitle" class="text-gray-400 text-xs mt-0.5">Required before continuing</p>
+      </div>
+    </div>
+    <div class="space-y-4 mb-6">
+      <div>
+        <label class="block text-xs font-semibold text-gray-700 mb-1.5">What's still unclear or confusing?</label>
+        <textarea id="pulse-q1" rows="2" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none" placeholder="Be honest — this helps HR improve onboarding."></textarea>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-700 mb-1.5">Who haven't you connected with yet that you should?</label>
+        <textarea id="pulse-q2" rows="2" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none" placeholder="e.g. your tech lead, a cross-functional partner..."></textarea>
+      </div>
+      <div>
+        <label class="block text-xs font-semibold text-gray-700 mb-1.5">What do you need to be more effective right now?</label>
+        <textarea id="pulse-q3" rows="2" class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none" placeholder="Tools, access, information, introductions..."></textarea>
+      </div>
+    </div>
+    <button id="pulse-submit-btn" onclick="submitPulse()"
+      class="w-full bg-indigo-600 text-white py-2.5 rounded-xl font-semibold hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2">
+      Submit Check-in
+    </button>
+  </div>
+</div>
+
+<!-- Hire Detail Modal (Admin) -->
+<div id="hire-modal" class="hidden fixed inset-0 z-40 bg-black/50 flex items-center justify-center p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[88vh] flex flex-col">
+    <div class="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+      <div>
+        <h2 id="modal-title" class="font-bold text-gray-900"></h2>
+        <p id="modal-subtitle" class="text-xs text-gray-400 mt-0.5"></p>
+      </div>
+      <button onclick="closeModal()" class="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 transition-colors">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+      </button>
+    </div>
+    <div id="modal-body" class="overflow-y-auto flex-1 px-6 py-5 space-y-6"></div>
+  </div>
+</div>
+
+<!-- NAV -->
+<nav class="bg-white border-b border-gray-200 sticky top-0 z-30">
+  <div class="max-w-6xl mx-auto px-4 flex items-center justify-between h-14">
+    <div class="flex items-center gap-2">
+      <div class="w-7 h-7 bg-indigo-600 rounded-lg flex items-center justify-center">
+        <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+        </svg>
+      </div>
+      <span class="font-bold text-gray-900">BoardingPass</span>
+    </div>
+    <div class="flex gap-1">
+      <button id="tab-onboard" onclick="switchTab('onboard')" class="tab-btn px-3.5 py-1.5 rounded-lg font-medium transition-colors text-gray-500 hover:text-gray-700">New Hire Portal</button>
+      <button id="tab-manager" onclick="switchTab('manager')" class="tab-btn px-3.5 py-1.5 rounded-lg font-medium transition-colors text-gray-500 hover:text-gray-700">Manager View</button>
+      <button id="tab-admin" onclick="switchTab('admin')" class="tab-btn px-3.5 py-1.5 rounded-lg font-medium transition-colors text-gray-500 hover:text-gray-700">HR Admin</button>
+    </div>
+  </div>
+</nav>
+
+<main class="max-w-6xl mx-auto px-4 py-8">
+
+<!-- ═══════════════════════════════════════════
+     NEW HIRE PORTAL
+═══════════════════════════════════════════ -->
+<section id="sec-onboard" class="hidden">
+
+  <!-- Entry screen -->
+  <div id="hire-entry" class="max-w-sm mx-auto">
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center">
+      <div class="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+        <svg class="w-7 h-7 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 9a2 2 0 10-4 0v5a2 2 0 01-2 2h6m-6-4h4m8 0a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+      </div>
+      <h1 class="text-2xl font-bold text-gray-900 mb-1">Welcome</h1>
+      <p class="text-gray-400 mb-6">Enter your onboarding code to get started</p>
+      <div class="flex gap-2">
+        <input id="hire-code-input" type="text" placeholder="e.g. a1b2c3d4" maxlength="36"
+          class="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          onkeydown="if(event.key==='Enter')loadPortal()">
+        <button onclick="loadPortal()" id="hire-load-btn"
+          class="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-semibold hover:bg-indigo-700 transition-colors">
+          Start
+        </button>
+      </div>
+      <p id="hire-entry-err" class="text-red-500 text-xs mt-2 hidden"></p>
+    </div>
+  </div>
+
+  <!-- Pending approval -->
+  <div id="hire-pending" class="hidden max-w-sm mx-auto">
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center">
+      <div class="w-14 h-14 bg-amber-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+        <svg class="w-7 h-7 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+      </div>
+      <h2 class="text-xl font-bold text-gray-900 mb-2">Pathway being prepared</h2>
+      <p class="text-gray-400 mb-6">HR is reviewing your onboarding plan. Check back soon.</p>
+      <div class="flex justify-center gap-1.5">
+        <div class="w-2 h-2 bg-indigo-300 rounded-full dot"></div>
+        <div class="w-2 h-2 bg-indigo-400 rounded-full dot"></div>
+        <div class="w-2 h-2 bg-indigo-500 rounded-full dot"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Active portal -->
+  <div id="hire-portal" class="hidden space-y-6">
+    <!-- Header card -->
+    <div class="bg-gradient-to-br from-indigo-600 to-indigo-700 rounded-2xl p-6 text-white">
+      <div class="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 id="p-welcome" class="text-2xl font-bold"></h1>
+          <p id="p-subtitle" class="text-indigo-200 mt-0.5"></p>
+        </div>
+        <div class="bg-white/20 rounded-xl px-4 py-2 text-center">
+          <div id="p-day" class="text-3xl font-bold"></div>
+          <div class="text-indigo-200 text-xs">of 30 days</div>
+        </div>
+      </div>
+      <div class="mt-5">
+        <div class="flex justify-between text-xs text-indigo-200 mb-1.5">
+          <span>Progress</span>
+          <span id="p-pct-label">0% complete</span>
+        </div>
+        <div class="h-2 bg-white/20 rounded-full overflow-hidden">
+          <div id="p-progress-bar" class="h-full bg-white rounded-full bar" style="width:0%"></div>
+        </div>
+      </div>
+      <div id="p-buddy-box" class="mt-4 bg-white/15 rounded-xl px-4 py-2.5 text-sm text-indigo-100 flex items-center gap-2">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+        </svg>
+        <span id="p-buddy"></span>
+      </div>
+    </div>
+
+    <!-- Pathway steps -->
+    <div>
+      <h2 class="font-semibold text-gray-800 mb-3">Your Onboarding Pathway</h2>
+      <div id="pathway-steps" class="space-y-2.5"></div>
+    </div>
+
+    <!-- Chat -->
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div class="px-5 py-4 border-b border-gray-100 flex items-center gap-3">
+        <div class="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-indigo-700 flex items-center justify-center">
+          <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+          </svg>
+        </div>
+        <div>
+          <p class="font-semibold text-gray-900">Onboarding Assistant</p>
+          <p class="text-xs text-green-500 font-medium">● Online · powered by your company docs</p>
+        </div>
+      </div>
+      <div id="chat-window" class="h-96 overflow-y-auto p-4 space-y-4 bg-gray-50/40">
+        <div id="chat-empty" class="flex flex-col items-center justify-center h-full text-center text-gray-400">
+          <svg class="w-8 h-8 mb-2 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"/>
+          </svg>
+          <p class="text-sm">Ask anything about your onboarding.</p>
+          <p class="text-xs mt-0.5">I'll answer from your company's documents.</p>
+        </div>
+      </div>
+      <div id="typing-wrap" class="hidden px-4 pb-2">
+        <div class="flex items-center gap-2">
+          <div class="bg-white border border-gray-200 rounded-2xl rounded-tl-md px-4 py-2.5 flex gap-1.5 items-center shadow-sm">
+            <div class="w-1.5 h-1.5 bg-gray-400 rounded-full dot"></div>
+            <div class="w-1.5 h-1.5 bg-gray-400 rounded-full dot"></div>
+            <div class="w-1.5 h-1.5 bg-gray-400 rounded-full dot"></div>
+          </div>
+        </div>
+      </div>
+      <div class="px-4 py-3 border-t border-gray-100 flex gap-2">
+        <input id="chat-input" type="text" placeholder="Ask anything about your onboarding..." maxlength="1000"
+          class="flex-1 border border-gray-200 rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendQuestion()}">
+        <button id="chat-send" onclick="sendQuestion()"
+          class="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+          Send
+        </button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     MANAGER VIEW
+═══════════════════════════════════════════ -->
+<section id="sec-manager" class="hidden">
+  <div id="mgr-entry" class="max-w-sm mx-auto">
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center">
+      <div class="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+        <svg class="w-7 h-7 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+        </svg>
+      </div>
+      <h1 class="text-2xl font-bold text-gray-900 mb-1">Manager View</h1>
+      <p class="text-gray-400 mb-6">Enter your Manager ID to see your team's progress</p>
+      <div class="flex gap-2">
+        <input id="mgr-id-input" type="text" placeholder="Your Manager ID" maxlength="50"
+          class="flex-1 border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          onkeydown="if(event.key==='Enter')loadManager()">
+        <button onclick="loadManager()" class="bg-indigo-600 text-white px-5 py-2.5 rounded-xl font-semibold hover:bg-indigo-700 transition-colors">Load</button>
+      </div>
+      <p id="mgr-entry-err" class="text-red-500 text-xs mt-2 hidden"></p>
+    </div>
+  </div>
+
+  <div id="mgr-dashboard" class="hidden">
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h1 id="mgr-name-heading" class="text-xl font-bold text-gray-900"></h1>
+        <p class="text-gray-400 text-xs mt-0.5">Manager Dashboard</p>
+      </div>
+      <button onclick="loadManager()" class="text-indigo-600 text-sm hover:underline">Refresh</button>
+    </div>
+    <div id="mgr-hires-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════
+     HR ADMIN
+═══════════════════════════════════════════ -->
+<section id="sec-admin" class="hidden">
+
+  <!-- Login gate -->
+  <div id="admin-login" class="max-w-sm mx-auto">
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-8">
+      <div class="w-14 h-14 bg-indigo-50 rounded-2xl flex items-center justify-center mx-auto mb-4">
+        <svg class="w-7 h-7 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+        </svg>
+      </div>
+      <h1 class="text-xl font-bold text-gray-900 text-center mb-1">HR Admin</h1>
+      <p class="text-gray-400 text-center mb-6">Enter your admin password</p>
+      <div class="space-y-3">
+        <input id="admin-pwd-input" type="password" placeholder="Admin password" maxlength="200"
+          class="w-full border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+          onkeydown="if(event.key==='Enter')adminLogin()">
+        <button onclick="adminLogin()" id="admin-login-btn"
+          class="w-full bg-indigo-600 text-white py-2.5 rounded-xl font-semibold hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2">
+          Enter
+        </button>
+      </div>
+      <p id="admin-login-err" class="text-red-500 text-xs mt-2 hidden text-center"></p>
+    </div>
+  </div>
+
+  <!-- Admin panels -->
+  <div id="admin-panels" class="hidden space-y-6">
+    <div class="flex items-center justify-between">
+      <h1 class="text-xl font-bold text-gray-900">HR Admin Dashboard</h1>
+      <button onclick="adminLogout()" class="text-xs text-gray-400 hover:text-gray-600 transition-colors">Lock session</button>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+      <!-- Upload Documents -->
+      <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <h2 class="font-semibold text-gray-900 mb-4">Upload Company Documents</h2>
+        <div class="space-y-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">.pdf, .txt, or .md — max 10 MB</label>
+            <input id="doc-file" type="file" accept=".pdf,.txt,.md"
+              class="block w-full text-sm text-gray-500 file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-indigo-50 file:text-indigo-600 hover:file:bg-indigo-100 cursor-pointer">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Roles (comma-separated, must match hire role exactly)</label>
+            <input id="doc-roles" type="text" placeholder="e.g. Software Engineer, Product Manager" maxlength="500"
+              class="w-full border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-500 mb-1">Departments (comma-separated)</label>
+            <input id="doc-departments" type="text" placeholder="e.g. Engineering, HR" maxlength="500"
+              class="w-full border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          </div>
+          <button onclick="uploadDoc()" id="upload-btn"
+            class="w-full bg-indigo-600 text-white py-2 rounded-xl font-medium hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
+            Upload Document
+          </button>
+        </div>
+        <div id="docs-list" class="mt-4 space-y-2"></div>
+      </div>
+
+      <!-- Create New Hire -->
+      <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+        <h2 class="font-semibold text-gray-900 mb-4">Create New Hire</h2>
+
+        <div id="hire-form" class="space-y-3">
+          <div class="grid grid-cols-2 gap-3">
+            <div class="col-span-2">
+              <label class="block text-xs font-medium text-gray-500 mb-1">Full Name</label>
+              <input id="h-name" type="text" placeholder="Alex Chen" maxlength="100"
+                class="w-full border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Role</label>
+              <input id="h-role" type="text" placeholder="Software Engineer" maxlength="100"
+                class="w-full border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Department</label>
+              <select id="h-dept" class="w-full border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+                <option value="">Select...</option>
+                <option>Engineering</option><option>Sales</option><option>Marketing</option>
+                <option>Operations</option><option>HR</option><option>Finance</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Seniority</label>
+              <select id="h-seniority" class="w-full border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+                <option value="">Select...</option>
+                <option>Junior</option><option>Mid</option><option>Senior</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Start Date</label>
+              <input id="h-start" type="date"
+                class="w-full border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Manager ID</label>
+              <input id="h-mgr-id" type="text" placeholder="mgr-001" maxlength="50"
+                class="w-full border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Manager Name</label>
+              <input id="h-mgr-name" type="text" placeholder="Sarah Johnson" maxlength="100"
+                class="w-full border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+            <div>
+              <label class="block text-xs font-medium text-gray-500 mb-1">Buddy Name</label>
+              <input id="h-buddy" type="text" placeholder="Jordan Lee" maxlength="100"
+                class="w-full border border-gray-200 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            </div>
+          </div>
+          <p id="hire-form-err" class="text-red-500 text-xs hidden"></p>
+          <button onclick="createHire()" id="create-hire-btn"
+            class="w-full bg-indigo-600 text-white py-2.5 rounded-xl font-semibold hover:bg-indigo-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-50">
+            Generate 30-Day Pathway
+          </button>
+        </div>
+
+        <!-- Pathway generating animation -->
+        <div id="pathway-gen" class="hidden text-center py-6">
+          <div class="relative w-16 h-16 mx-auto mb-4">
+            <svg class="w-16 h-16 -rotate-90" viewBox="0 0 64 64">
+              <circle cx="32" cy="32" r="28" fill="none" stroke="#e0e7ff" stroke-width="5"/>
+              <circle id="gen-ring" cx="32" cy="32" r="28" fill="none" stroke="#4f46e5" stroke-width="5"
+                stroke-dasharray="176" stroke-dashoffset="176" class="ring"/>
+            </svg>
+            <div class="absolute inset-0 flex items-center justify-center">
+              <span id="gen-pct" class="text-xs font-bold text-indigo-600">0%</span>
+            </div>
+          </div>
+          <p id="gen-phase" class="font-medium text-gray-700 mb-1">Starting...</p>
+          <p class="text-xs text-gray-400">This takes about 15 seconds</p>
+        </div>
+
+        <!-- Pathway preview -->
+        <div id="pathway-preview" class="hidden mt-4">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-semibold text-gray-900">30-Day Pathway Preview</h3>
+            <span id="preview-count" class="text-xs text-gray-400"></span>
+          </div>
+          <div id="preview-list" class="space-y-1.5 max-h-60 overflow-y-auto pr-0.5"></div>
+          <div class="mt-4 space-y-3">
+            <button id="approve-btn" onclick="approvePathway()"
+              class="w-full bg-green-600 text-white py-2.5 rounded-xl font-semibold hover:bg-green-700 transition-colors flex items-center justify-center gap-2">
+              Approve Pathway
+            </button>
+            <div id="hire-id-box" class="hidden bg-green-50 border border-green-200 rounded-xl p-4">
+              <p class="text-green-800 font-semibold mb-1">Pathway approved!</p>
+              <p class="text-green-700 text-xs mb-3">Share this with your new hire:</p>
+              <div class="flex gap-2">
+                <code id="hire-id-display" class="flex-1 bg-white border border-green-200 rounded-lg px-3 py-2 text-xs font-mono text-green-800 overflow-x-auto select-all whitespace-nowrap"></code>
+                <button onclick="copyHireLink()" id="copy-btn"
+                  class="bg-green-600 text-white px-3 py-2 rounded-lg text-xs font-semibold hover:bg-green-700 transition-colors whitespace-nowrap">
+                  Copy
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Dashboard -->
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+      <div class="flex items-center justify-between mb-5">
+        <h2 class="font-semibold text-gray-900">All Hires</h2>
+        <button onclick="loadDashboard()" class="text-xs bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg transition-colors">Refresh</button>
+      </div>
+      <!-- Empty state -->
+      <div id="db-empty" class="py-16 text-center">
+        <svg class="w-10 h-10 text-gray-200 mx-auto mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+        </svg>
+        <p class="text-gray-400">No hires yet. Create your first new hire above.</p>
+      </div>
+      <div id="db-table-wrap" class="hidden overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-left text-xs font-semibold text-gray-400 border-b border-gray-100">
+              <th class="pb-3 pr-4 font-medium">Name</th>
+              <th class="pb-3 pr-4 font-medium">Role / Dept</th>
+              <th class="pb-3 pr-4 font-medium">Progress</th>
+              <th class="pb-3 pr-4 font-medium">Flags</th>
+              <th class="pb-3 pr-4 font-medium">Status</th>
+              <th class="pb-3 font-medium"></th>
+            </tr>
+          </thead>
+          <tbody id="db-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<script>
+// ════════════════════════════════════════════════════════════
+// STATE
+// ════════════════════════════════════════════════════════════
+const S = {
+  adminPwd: null,          // never stored outside JS memory
+  currentHireId: null,
+  currentMgrId: null,
+  createdHireId: null,
+  pathway: [],             // full array — indices match /acknowledge/{i}
+  dss: 1,
+  completionPct: 0,
+  submittedMilestones: new Set(),
+  pendingMilestones: [],
+  chatHistory: [],
+};
+
+// ════════════════════════════════════════════════════════════
+// UTILS
+// ════════════════════════════════════════════════════════════
+function safe(s) {
+  const d = document.createElement('div');
+  d.textContent = String(s ?? '');
+  return d.innerHTML;
+}
+
+function txt(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+
+function show(id) { document.getElementById(id)?.classList.remove('hidden'); }
+function hide(id) { document.getElementById(id)?.classList.add('hidden'); }
+function toggle(id, visible) { visible ? show(id) : hide(id); }
+
+function toast(msg, type = 'success') {
+  const colors = { success:'bg-gray-900', error:'bg-red-600', warning:'bg-amber-500', info:'bg-indigo-600' };
+  const t = document.createElement('div');
+  t.className = `pointer-events-auto ${colors[type]||colors.info} text-white px-4 py-3 rounded-xl shadow-lg text-sm font-medium fadeRight`;
+  t.textContent = msg;
+  document.getElementById('toasts').appendChild(t);
+  setTimeout(() => t.style.cssText = 'opacity:0;transition:opacity .3s', 3000);
+  setTimeout(() => t.remove(), 3400);
+}
+
+async function api(url, opts = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (S.adminPwd) headers['x-admin-password'] = S.adminPwd;
+  Object.assign(headers, opts.headers || {});
+  try {
+    const res = await fetch(url, { ...opts, headers });
+    if (!res.ok) {
+      const e = await res.json().catch(() => ({ detail: 'Request failed' }));
+      const err = new Error(e.detail || 'Request failed');
+      err.status = res.status;
+      throw err;
+    }
+    return res.json();
+  } catch (e) {
+    if (!e.status) { e.message = 'Connection error — is the server running on port 8000?'; }
+    throw e;
+  }
+}
+
+function btnLoad(id, loading, text) {
+  const btn = document.getElementById(id);
+  if (!btn) return;
+  btn.disabled = loading;
+  if (!btn._orig) btn._orig = btn.innerHTML;
+  if (loading) {
+    btn.innerHTML = `<span class="spinner${id.includes('dark')?'-dark':''}"></span> ${text||'Loading...'}`;
+  } else {
+    btn.innerHTML = btn._orig;
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// ROUTING
+// ════════════════════════════════════════════════════════════
+function switchTab(tab) {
+  ['onboard','manager','admin'].forEach(t => {
+    toggle('sec-'+t, t===tab);
+    const btn = document.getElementById('tab-'+t);
+    if (t===tab) {
+      btn.classList.add('bg-indigo-50','text-indigo-700','font-semibold');
+      btn.classList.remove('text-gray-500');
+    } else {
+      btn.classList.remove('bg-indigo-50','text-indigo-700','font-semibold');
+      btn.classList.add('text-gray-500');
+    }
+  });
+  history.replaceState(null,'','#'+tab);
+}
+
+(function init() {
+  const hash = location.hash.replace('#','');
+  switchTab(['onboard','manager','admin'].includes(hash) ? hash : 'onboard');
+  window.addEventListener('hashchange', () => {
+    const h = location.hash.replace('#','');
+    if (['onboard','manager','admin'].includes(h)) switchTab(h);
+  });
+  window.addEventListener('offline', () => show('offline-banner'));
+  window.addEventListener('online', () => hide('offline-banner'));
+})();
+
+// ════════════════════════════════════════════════════════════
+// ADMIN — AUTH
+// ════════════════════════════════════════════════════════════
+async function adminLogin() {
+  const pwd = document.getElementById('admin-pwd-input').value;
+  if (!pwd) return;
+  hide('admin-login-err');
+  btnLoad('admin-login-btn', true, 'Signing in...');
+  try {
+    S.adminPwd = pwd;
+    await api('/admin/dashboard');
+    hide('admin-login');
+    show('admin-panels');
+    loadDashboard();
+    loadDocsList();
+  } catch(e) {
+    S.adminPwd = null;
+    const errEl = document.getElementById('admin-login-err');
+    errEl.textContent = e.status === 401 ? 'Incorrect password' : e.message;
+    show('admin-login-err');
+    document.getElementById('admin-pwd-input').classList.add('shake');
+    setTimeout(() => document.getElementById('admin-pwd-input').classList.remove('shake'), 400);
+  } finally {
+    btnLoad('admin-login-btn', false);
+  }
+}
+
+function adminLogout() {
+  S.adminPwd = null;
+  hide('admin-panels');
+  show('admin-login');
+  document.getElementById('admin-pwd-input').value = '';
+}
+
+// ════════════════════════════════════════════════════════════
+// ADMIN — DOCUMENTS
+// ════════════════════════════════════════════════════════════
+async function uploadDoc() {
+  const file = document.getElementById('doc-file').files[0];
+  const roles = document.getElementById('doc-roles').value.trim();
+  const depts = document.getElementById('doc-departments').value.trim();
+  if (!file) { toast('Select a file first', 'error'); return; }
+  if (!roles || !depts) { toast('Enter roles and departments', 'error'); return; }
+  if (file.size > 10*1024*1024) { toast('File too large (max 10 MB)', 'error'); return; }
+  const ext = file.name.split('.').pop().toLowerCase();
+  if (!['pdf','txt','md'].includes(ext)) { toast('Only .pdf, .txt, .md allowed', 'error'); return; }
+
+  btnLoad('upload-btn', true, 'Uploading...');
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    form.append('roles', roles);
+    form.append('departments', depts);
+    const res = await fetch('/admin/upload-doc', {
+      method: 'POST',
+      headers: { 'x-admin-password': S.adminPwd },
+      body: form,
+    });
+    if (!res.ok) { const e = await res.json().catch(()=>({})); throw new Error(e.detail||'Upload failed'); }
+    const data = await res.json();
+    toast(`Uploaded: ${data.filename}`, 'success');
+    document.getElementById('doc-file').value = '';
+    document.getElementById('doc-roles').value = '';
+    document.getElementById('doc-departments').value = '';
+    loadDocsList();
+  } catch(e) {
+    toast(e.message || 'Upload failed', 'error');
+  } finally {
+    btnLoad('upload-btn', false);
+  }
+}
+
+async function loadDocsList() {
+  try {
+    const docs = await api('/admin/docs');
+    const el = document.getElementById('docs-list');
+    if (!docs.length) { el.innerHTML = ''; return; }
+    el.innerHTML = `<p class="text-xs font-medium text-gray-400 mb-2">Uploaded (${docs.length})</p>` +
+      docs.map(d => `
+        <div class="bg-gray-50 rounded-lg px-3 py-2 text-xs">
+          <div class="font-medium text-gray-700 truncate">${safe(d.filename)}</div>
+          <div class="text-gray-400 mt-0.5 truncate">${safe(d.roles.join(', '))} · ${safe(d.departments.join(', '))}</div>
+        </div>`).join('');
+  } catch(_) {}
+}
+
+// ════════════════════════════════════════════════════════════
+// ADMIN — CREATE HIRE
+// ════════════════════════════════════════════════════════════
+function validateHireForm() {
+  const v = id => document.getElementById(id).value.trim();
+  if (!v('h-name')) return 'Full name required';
+  if (!v('h-role')) return 'Role required';
+  if (!v('h-dept')) return 'Department required';
+  if (!v('h-seniority')) return 'Seniority required';
+  const d = v('h-start');
+  if (!d || !/^\d{4}-\d{2}-\d{2}$/.test(d)) return 'Valid start date required';
+  if (!v('h-mgr-id')) return 'Manager ID required';
+  if (!v('h-mgr-name')) return 'Manager name required';
+  if (!v('h-buddy')) return 'Buddy name required';
+  return null;
+}
+
+let genInterval = null;
+function startGenAnim() {
+  hide('hire-form');
+  show('pathway-gen');
+  hide('pathway-preview');
+  const phases = [
+    {p:12,l:'Reading the role context...'},
+    {p:30,l:'Structuring the pathway...'},
+    {p:52,l:'Personalising for seniority...'},
+    {p:72,l:'Writing daily content...'},
+    {p:90,l:'Almost ready...'},
+  ];
+  let i = 0;
+  genInterval = setInterval(() => {
+    if (i >= phases.length) return;
+    const {p, l} = phases[i++];
+    document.getElementById('gen-ring').style.strokeDashoffset = 176*(1-p/100);
+    txt('gen-pct', p+'%');
+    txt('gen-phase', l);
+  }, 2600);
+}
+function stopGenAnim(ok) {
+  clearInterval(genInterval);
+  if (ok) {
+    document.getElementById('gen-ring').style.strokeDashoffset = 0;
+    txt('gen-pct','100%');
+    txt('gen-phase','Pathway ready!');
+  }
+}
+
+async function createHire() {
+  const errEl = document.getElementById('hire-form-err');
+  hide('hire-form-err');
+  const ve = validateHireForm();
+  if (ve) { errEl.textContent = ve; show('hire-form-err'); return; }
+
+  startGenAnim();
+  try {
+    const data = await api('/admin/new-hire', {
+      method: 'POST',
+      body: JSON.stringify({
+        name: document.getElementById('h-name').value.trim(),
+        role: document.getElementById('h-role').value.trim(),
+        department: document.getElementById('h-dept').value,
+        seniority: document.getElementById('h-seniority').value,
+        start_date: document.getElementById('h-start').value,
+        manager_id: document.getElementById('h-mgr-id').value.trim(),
+        manager_name: document.getElementById('h-mgr-name').value.trim(),
+        buddy_name: document.getElementById('h-buddy').value.trim(),
+      }),
+    });
+    S.createdHireId = data.hire_id;
+    stopGenAnim(true);
+    setTimeout(async () => {
+      hide('pathway-gen');
+      show('hire-form');
+      await showPathwayPreview(data.hire_id);
+      loadDashboard();
+    }, 700);
+  } catch(e) {
+    stopGenAnim(false);
+    hide('pathway-gen');
+    show('hire-form');
+    toast(e.message || 'Failed to create hire', 'error');
+  }
+}
+
+async function showPathwayPreview(hireId) {
+  try {
+    const hire = await api('/admin/hire/' + hireId);
+    const pathway = hire.pathway || [];
+    txt('preview-count', pathway.length + ' steps');
+    document.getElementById('preview-list').innerHTML = pathway.map(step => `
+      <div class="flex gap-3 bg-gray-50 rounded-xl px-3 py-2.5 text-xs items-start">
+        <div class="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center flex-shrink-0 font-bold text-indigo-700">${step.day}</div>
+        <div class="min-w-0">
+          <div class="font-semibold text-gray-800 truncate">${safe(step.title)}</div>
+          <div class="text-gray-400 mt-0.5 line-clamp-2">${safe(step.content.slice(0,110))}${step.content.length>110?'...':''}</div>
+        </div>
+      </div>`).join('');
+    show('pathway-preview');
+    document.getElementById('approve-btn').disabled = false;
+  } catch(e) {
+    toast('Could not load pathway preview', 'warning');
+  }
+}
+
+async function approvePathway() {
+  if (!S.createdHireId) return;
+  btnLoad('approve-btn', true, 'Approving...');
+  try {
+    await api('/admin/approve-pathway/' + S.createdHireId, { method: 'POST' });
+    const ab = document.getElementById('approve-btn');
+    ab.disabled = true; ab.textContent = 'Approved ✓';
+    ab.className = ab.className.replace('bg-green-600 hover:bg-green-700','bg-gray-200 text-gray-500 cursor-default');
+    const url = `${location.origin}${location.pathname}#onboard`;
+    document.getElementById('hire-id-display').textContent = `Code: ${S.createdHireId}  |  URL: ${url}`;
+    show('hire-id-box');
+    toast('Pathway approved and ready to share!', 'success');
+    loadDashboard();
+  } catch(e) {
+    toast(e.message || 'Approval failed', 'error');
+    btnLoad('approve-btn', false);
+  }
+}
+
+function copyHireLink() {
+  const text = document.getElementById('hire-id-display').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    toast('Copied to clipboard!', 'success');
+    const btn = document.getElementById('copy-btn');
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = orig, 2000);
+  });
+}
+
+// ════════════════════════════════════════════════════════════
+// ADMIN — DASHBOARD
+// ════════════════════════════════════════════════════════════
+async function loadDashboard() {
+  try {
+    const hires = await api('/admin/dashboard');
+    renderDashboard(hires);
+  } catch(e) {
+    if (e.status === 401) { toast('Session expired', 'error'); adminLogout(); }
+  }
+}
+
+function renderDashboard(hires) {
+  toggle('db-empty', !hires.length);
+  toggle('db-table-wrap', hires.length > 0);
+  if (!hires.length) return;
+  document.getElementById('db-tbody').innerHTML = hires.map(h => {
+    const pct = h.completion_pct;
+    const barCls = pct>=70?'bg-green-500':pct>=40?'bg-amber-500':'bg-red-400';
+    const status = !h.pathway_approved ? 'Pending' : pct>=100 ? 'Complete' : 'Active';
+    const sCls = status==='Pending'?'bg-gray-100 text-gray-600':status==='Complete'?'bg-blue-100 text-blue-700':'bg-green-100 text-green-700';
+    return `<tr class="border-b border-gray-50 hover:bg-gray-50/50 transition-colors">
+      <td class="py-3 pr-4 font-semibold text-gray-900">${safe(h.name)}</td>
+      <td class="py-3 pr-4 text-gray-400 text-xs">${safe(h.role)}<br>${safe(h.department)}</td>
+      <td class="py-3 pr-4">
+        <div class="flex items-center gap-2">
+          <div class="w-20 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+            <div class="h-full ${barCls} rounded-full bar" style="width:${pct}%"></div>
+          </div>
+          <span class="text-xs text-gray-500 whitespace-nowrap">${pct}% · Day ${h.days_since_start}</span>
+        </div>
+      </td>
+      <td class="py-3 pr-4">
+        ${h.flagged_questions>0?`<span class="bg-red-100 text-red-700 text-xs font-bold px-2 py-0.5 rounded-full">${h.flagged_questions}</span>`:'<span class="text-gray-200 text-xs">—</span>'}
+      </td>
+      <td class="py-3 pr-4"><span class="text-xs px-2.5 py-1 rounded-full font-medium ${sCls}">${status}</span></td>
+      <td class="py-3">
+        <button onclick="viewHireDetail('${safe(h.id)}')"
+          class="text-xs text-indigo-600 hover:text-indigo-800 font-semibold">Details</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function viewHireDetail(hireId) {
+  try {
+    const hire = await api('/admin/hire/' + hireId);
+    renderHireModal(hire);
+    show('hire-modal');
+  } catch(e) { toast('Could not load hire details', 'error'); }
+}
+
+function closeModal() { hide('hire-modal'); }
+
+function renderHireModal(hire) {
+  txt('modal-title', hire.name);
+  txt('modal-subtitle', hire.role + ' · ' + hire.department + ' · ' + hire.seniority);
+
+  const flaggedQ = hire.questions.filter(q => q.flagged);
+  const answeredQ = hire.questions.filter(q => !q.flagged);
+
+  let html = '';
+
+  // Pathway
+  html += `<div>
+    <h3 class="font-semibold text-gray-800 text-sm mb-3">Pathway — ${hire.pathway.filter(s=>s.acknowledged).length}/${hire.pathway.length} completed</h3>
+    <div class="space-y-1 max-h-48 overflow-y-auto pr-1">
+      ${hire.pathway.map(s => `
+        <div class="flex items-center gap-2.5 text-xs px-3 py-2 rounded-lg ${s.acknowledged?'bg-green-50':'bg-gray-50'}">
+          <span class="w-7 h-7 flex-shrink-0 rounded-lg ${s.acknowledged?'bg-green-500 text-white':'bg-gray-200 text-gray-500'} flex items-center justify-center font-bold text-xs">
+            ${s.acknowledged?'✓':s.day}
+          </span>
+          <span class="text-gray-700 font-medium truncate">${safe(s.title)}</span>
+          ${s.acknowledged_at?`<span class="ml-auto text-green-500 text-xs whitespace-nowrap flex-shrink-0">Done</span>`:''}
+        </div>`).join('')}
+    </div>
+  </div>`;
+
+  // Flagged questions
+  if (flaggedQ.length) {
+    html += `<div>
+      <h3 class="font-semibold text-sm mb-3 flex items-center gap-2">
+        <span class="bg-red-100 text-red-700 rounded-full px-2 py-0.5 text-xs">${flaggedQ.length} flagged</span>
+        <span class="text-gray-800">Needs your response</span>
+      </h3>
+      <div class="space-y-3">
+        ${flaggedQ.map(q => `
+          <div class="bg-red-50 border border-red-200 rounded-xl p-4">
+            <p class="text-sm font-semibold text-gray-800 mb-1">${safe(q.question)}</p>
+            <p class="text-xs text-gray-400 mb-3">${new Date(q.timestamp).toLocaleString()}</p>
+            <div class="flex gap-2">
+              <input id="ans-${safe(q.id)}" type="text" placeholder="Type your answer..." maxlength="5000"
+                class="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                onkeydown="if(event.key==='Enter')adminAnswer('${safe(hire.id)}','${safe(q.id)}')">
+              <button onclick="adminAnswer('${safe(hire.id)}','${safe(q.id)}')"
+                class="bg-indigo-600 text-white px-3 py-2 rounded-lg text-xs font-semibold hover:bg-indigo-700 transition-colors">
+                Send
+              </button>
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  // Answered questions
+  if (answeredQ.length) {
+    html += `<div>
+      <h3 class="font-semibold text-gray-800 text-sm mb-3">Answered Questions (${answeredQ.length})</h3>
+      <div class="space-y-2 max-h-48 overflow-y-auto pr-1">
+        ${answeredQ.map(q => `
+          <div class="bg-gray-50 rounded-xl p-3 text-xs">
+            <p class="font-semibold text-gray-700 mb-1">${safe(q.question)}</p>
+            <p class="text-gray-500">${safe(q.answer.slice(0,200))}${q.answer.length>200?'...':''}</p>
+            <p class="text-gray-300 mt-1">${safe(q.answered_by)} · ${new Date(q.timestamp).toLocaleString()}</p>
+          </div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  // Pulse checks
+  if (hire.pulse_checks?.length) {
+    html += `<div>
+      <h3 class="font-semibold text-gray-800 text-sm mb-3">Pulse Checks (${hire.pulse_checks.length})</h3>
+      <div class="space-y-3">
+        ${hire.pulse_checks.map(pc => `
+          <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-4 text-xs">
+            <p class="font-bold text-indigo-800 mb-2">Day ${pc.day} · ${new Date(pc.submitted_at).toLocaleDateString()}</p>
+            <div class="space-y-1 text-gray-700">
+              <p><span class="font-semibold">Unclear:</span> ${safe(pc.q1)}</p>
+              <p><span class="font-semibold">Not connected:</span> ${safe(pc.q2)}</p>
+              <p><span class="font-semibold">Needs:</span> ${safe(pc.q3)}</p>
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  document.getElementById('modal-body').innerHTML = html;
+}
+
+async function adminAnswer(hireId, qId) {
+  const input = document.getElementById('ans-'+qId);
+  const answer = input?.value.trim();
+  if (!answer) { toast('Enter an answer first', 'warning'); return; }
+  try {
+    await api(`/admin/answer-question/${hireId}/${qId}`, {
+      method: 'POST', body: JSON.stringify({ answer }),
+    });
+    toast('Answer sent!', 'success');
+    const hire = await api('/admin/hire/' + hireId);
+    renderHireModal(hire);
+    loadDashboard();
+  } catch(e) { toast('Failed to send answer', 'error'); }
+}
+
+// ════════════════════════════════════════════════════════════
+// MANAGER VIEW
+// ════════════════════════════════════════════════════════════
+async function loadManager() {
+  const id = document.getElementById('mgr-id-input').value.trim();
+  const errEl = document.getElementById('mgr-entry-err');
+  hide('mgr-entry-err');
+  if (!id) { errEl.textContent = 'Enter a Manager ID'; show('mgr-entry-err'); return; }
+  S.currentMgrId = id;
+  try {
+    const data = await api('/manager/' + encodeURIComponent(id));
+    hide('mgr-entry');
+    show('mgr-dashboard');
+    txt('mgr-name-heading', (data.manager_name || 'Your Team') + "'s Dashboard");
+    renderManagerGrid(data.hires || [], id);
+  } catch(e) {
+    errEl.textContent = e.message || 'Failed to load';
+    show('mgr-entry-err');
+  }
+}
+
+function renderManagerGrid(hires, mgrId) {
+  const grid = document.getElementById('mgr-hires-grid');
+  if (!hires.length) {
+    grid.innerHTML = `<div class="col-span-full flex flex-col items-center py-20 text-gray-400">
+      <svg class="w-10 h-10 mb-3 opacity-30" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/>
+      </svg>
+      <p>No hires assigned to this Manager ID.</p>
+    </div>`;
+    return;
+  }
+  grid.innerHTML = hires.map(h => {
+    const pct = h.completion_pct;
+    const barCls = pct>=70?'bg-green-500':pct>=40?'bg-amber-500':'bg-red-400';
+    const nudge = `${safe(h.name)} has completed ${pct}% of their onboarding. ` +
+      (h.flagged_questions>0 ? `${h.flagged_questions} question(s) need your attention. Action needed: schedule their week-2 check-in.` : 'No questions need your attention right now.');
+    return `<div class="hire-card bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div class="hire-card-hdr p-5 cursor-pointer hover:bg-gray-50/50 transition-colors" onclick="toggleCard(this)">
+        <div class="flex items-start justify-between">
+          <div>
+            <h3 class="font-semibold text-gray-900">${safe(h.name)}</h3>
+            <p class="text-xs text-gray-400 mt-0.5">${safe(h.role)} · ${safe(h.department)}</p>
+          </div>
+          <div class="flex items-center gap-2">
+            ${h.flagged_questions>0?`<span class="bg-red-100 text-red-700 text-xs font-bold px-2 py-0.5 rounded-full">${h.flagged_questions}</span>`:''}
+            <svg class="chevron w-4 h-4 text-gray-300 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+            </svg>
+          </div>
+        </div>
+        <div class="mt-3">
+          <div class="flex justify-between text-xs text-gray-400 mb-1">
+            <span>Day ${h.days_since_start} of 30</span>
+            <span>${pct}% complete</span>
+          </div>
+          <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+            <div class="h-full ${barCls} rounded-full bar" style="width:${pct}%"></div>
+          </div>
+        </div>
+        <div class="mt-3 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2.5">
+          <p class="text-xs font-semibold text-gray-400 mb-1">Slack nudge preview</p>
+          <p class="text-xs text-gray-500 italic">${nudge}</p>
+        </div>
+      </div>
+      <div class="hire-card-body hidden border-t border-gray-100">
+        <div class="p-4" id="mgr-detail-${safe(h.id)}">
+          <button onclick="loadMgrHireDetail('${safe(mgrId)}','${safe(h.id)}')"
+            class="w-full bg-indigo-50 text-indigo-700 py-2 rounded-xl font-medium hover:bg-indigo-100 transition-colors text-sm">
+            Load Full Journey
+          </button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function toggleCard(hdr) {
+  const card = hdr.closest('.hire-card');
+  const body = card.querySelector('.hire-card-body');
+  const chev = hdr.querySelector('.chevron');
+  const isOpen = !body.classList.contains('hidden');
+  document.querySelectorAll('.hire-card-body').forEach(b => b.classList.add('hidden'));
+  document.querySelectorAll('.hire-card .chevron').forEach(c => c.classList.remove('rotate-180'));
+  if (!isOpen) { body.classList.remove('hidden'); chev.classList.add('rotate-180'); }
+}
+
+async function loadMgrHireDetail(mgrId, hireId) {
+  const container = document.getElementById('mgr-detail-' + hireId);
+  try {
+    const hire = await api(`/manager/${encodeURIComponent(mgrId)}/hire/${hireId}`);
+    const flagged = hire.questions.filter(q => q.flagged);
+    container.innerHTML = `
+      <h4 class="font-semibold text-gray-800 text-sm mb-3">Pathway</h4>
+      <div class="space-y-1 max-h-48 overflow-y-auto pr-1 mb-4">
+        ${hire.pathway.map(s => `
+          <div class="flex items-center gap-2 text-xs px-3 py-2 rounded-lg ${s.acknowledged?'bg-green-50':'bg-gray-50'}">
+            <span class="w-6 h-6 flex-shrink-0 rounded-md ${s.acknowledged?'bg-green-500 text-white':'bg-gray-200 text-gray-500'} flex items-center justify-center font-bold text-xs">
+              ${s.acknowledged?'✓':s.day}
+            </span>
+            <span class="text-gray-700 truncate">${safe(s.title)}</span>
+          </div>`).join('')}
+      </div>
+      ${flagged.length ? `
+        <h4 class="font-semibold text-red-700 text-sm mb-3">${flagged.length} flagged question(s)</h4>
+        <div class="space-y-3">
+          ${flagged.map(q => `
+            <div class="bg-red-50 border border-red-100 rounded-xl p-3">
+              <p class="text-xs font-semibold text-gray-800 mb-2">${safe(q.question)}</p>
+              <div class="flex gap-2">
+                <input id="mgr-ans-${safe(q.id)}" type="text" placeholder="Your answer..." maxlength="5000"
+                  class="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  onkeydown="if(event.key==='Enter')mgrAnswer('${safe(mgrId)}','${safe(hireId)}','${safe(q.id)}')">
+                <button onclick="mgrAnswer('${safe(mgrId)}','${safe(hireId)}','${safe(q.id)}')"
+                  class="bg-indigo-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-indigo-700">
+                  Answer
+                </button>
+              </div>
+            </div>`).join('')}
+        </div>` : `<p class="text-xs text-gray-400">No flagged questions.</p>`}`;
+  } catch(e) {
+    container.innerHTML = `<p class="text-xs text-red-500">${safe(e.message||'Failed to load')}</p>`;
+  }
+}
+
+async function mgrAnswer(mgrId, hireId, qId) {
+  const input = document.getElementById('mgr-ans-'+qId);
+  const answer = input?.value.trim();
+  if (!answer) { toast('Enter an answer', 'warning'); return; }
+  try {
+    await api(`/manager/${encodeURIComponent(mgrId)}/answer/${hireId}/${qId}`, {
+      method: 'POST', body: JSON.stringify({ answer }),
+    });
+    toast('Answer sent!', 'success');
+    loadMgrHireDetail(mgrId, hireId);
+  } catch(e) { toast('Failed to send answer', 'error'); }
+}
+
+// ════════════════════════════════════════════════════════════
+// NEW HIRE PORTAL
+// ════════════════════════════════════════════════════════════
+async function loadPortal() {
+  const code = document.getElementById('hire-code-input').value.trim();
+  const errEl = document.getElementById('hire-entry-err');
+  hide('hire-entry-err');
+  if (!code) { errEl.textContent = 'Enter your onboarding code'; show('hire-entry-err'); return; }
+  try {
+    const data = await api('/onboard/' + encodeURIComponent(code));
+    S.currentHireId = code;
+
+    if (data.status === 'pending_approval') {
+      hide('hire-entry');
+      show('hire-pending');
+      return;
+    }
+
+    // Load chat history
+    try {
+      S.chatHistory = await api('/onboard/' + encodeURIComponent(code) + '/questions');
+    } catch(_) { S.chatHistory = []; }
+
+    S.pathway = data.pathway || [];
+    S.dss = data.days_since_start || 1;
+    S.completionPct = data.completion_pct || 0;
+
+    // Compute pending milestones
+    if (data.pulse_due) {
+      S.pendingMilestones = [7,14,30].filter(m => S.dss>=m && !S.submittedMilestones.has(m));
+    }
+
+    hide('hire-entry');
+    show('hire-portal');
+    renderPortal(data);
+
+    if (S.pendingMilestones.length > 0) setTimeout(() => showPulseModal(S.pendingMilestones[0]), 400);
+  } catch(e) {
+    errEl.textContent = e.status===404 ? 'Code not found — check with your HR team' : e.message;
+    show('hire-entry-err');
+  }
+}
+
+function renderPortal(data) {
+  txt('p-welcome', 'Welcome, ' + data.name + '!');
+  txt('p-subtitle', data.role + ' · ' + data.department + ' · ' + data.seniority);
+  txt('p-day', data.days_since_start);
+  txt('p-buddy', 'Your buddy is ' + data.buddy_name + ' — reach out anytime!');
+  updateProgressBar(data.completion_pct);
+  renderSteps();
+  renderChatHistory();
+}
+
+function renderSteps() {
+  const container = document.getElementById('pathway-steps');
+  container.innerHTML = S.pathway.map((step, i) => {
+    const unlocked = step.day <= Math.max(S.dss, 1);
+    const done = step.acknowledged;
+
+    if (!unlocked) return `
+      <div class="bg-gray-50 border border-gray-100 rounded-xl p-4 opacity-50">
+        <div class="flex items-center gap-3">
+          <div class="w-8 h-8 bg-gray-200 rounded-lg flex items-center justify-center flex-shrink-0">
+            <svg class="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/>
+            </svg>
+          </div>
+          <div>
+            <p class="text-sm text-gray-400 font-medium">${safe(step.title)}</p>
+            <p class="text-xs text-gray-300 mt-0.5">Unlocks on Day ${step.day}</p>
+          </div>
+        </div>
+      </div>`;
+
+    if (done) return `
+      <div class="bg-green-50 border border-green-200 rounded-xl p-4 fadeUp">
+        <div class="flex items-start gap-3">
+          <div class="w-8 h-8 bg-green-500 rounded-lg flex items-center justify-center flex-shrink-0">
+            <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+            </svg>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2 flex-wrap mb-1">
+              <span class="bg-green-100 text-green-700 text-xs font-bold px-2 py-0.5 rounded-md">Day ${step.day}</span>
+              <span class="text-xs text-green-600 font-semibold">Complete</span>
+            </div>
+            <h3 class="font-semibold text-gray-800">${safe(step.title)}</h3>
+            <p class="text-gray-500 mt-1 leading-relaxed">${safe(step.content)}</p>
+          </div>
+        </div>
+      </div>`;
+
+    return `
+      <div class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm fadeUp" id="step-${i}">
+        <div class="flex items-start gap-3">
+          <div class="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center flex-shrink-0">
+            <span class="text-xs font-bold text-indigo-600">${step.day}</span>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between gap-2 mb-1 flex-wrap">
+              <span class="bg-indigo-50 text-indigo-700 text-xs font-bold px-2 py-0.5 rounded-md">Day ${step.day}</span>
+              <button id="ack-${i}" onclick="ackStep(${i})"
+                class="text-xs bg-indigo-600 text-white px-3 py-1 rounded-lg hover:bg-indigo-700 transition-colors disabled:opacity-40">
+                Mark Complete
+              </button>
+            </div>
+            <h3 class="font-semibold text-gray-800">${safe(step.title)}</h3>
+            <p class="text-gray-500 mt-1 leading-relaxed">${safe(step.content)}</p>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+async function ackStep(idx) {
+  const btn = document.getElementById('ack-'+idx);
+  if (btn) { btn.disabled = true; btn.textContent = '...'; }
+  try {
+    const res = await api(`/onboard/${S.currentHireId}/acknowledge/${idx}`, { method: 'POST' });
+    S.pathway[idx].acknowledged = true;
+    S.pathway[idx].acknowledged_at = new Date().toISOString();
+    updateProgressBar(res.completion_pct);
+    renderSteps();
+    toast('Step marked complete!', 'success');
+  } catch(e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Mark Complete'; }
+    toast('Could not save — please try again', 'error');
+  }
+}
+
+function updateProgressBar(pct) {
+  S.completionPct = pct;
+  document.getElementById('p-progress-bar').style.width = pct + '%';
+  txt('p-pct-label', pct + '% complete');
+}
+
+// ════════════════════════════════════════════════════════════
+// CHAT
+// ════════════════════════════════════════════════════════════
+function renderChatHistory() {
+  const win = document.getElementById('chat-window');
+  const empty = document.getElementById('chat-empty');
+  if (!S.chatHistory.length) { if (empty) empty.style.display = ''; return; }
+  if (empty) empty.style.display = 'none';
+  // Render pairs
+  win.innerHTML = S.chatHistory.map(q => chatUserBubble(q.question) + chatAiBubble(q.answer, q.flagged)).join('');
+  win.scrollTop = win.scrollHeight;
+}
+
+function chatUserBubble(text) {
+  return `<div class="flex justify-end fadeUp">
+    <div class="max-w-xs md:max-w-sm bg-indigo-600 text-white rounded-2xl rounded-tr-md px-4 py-2.5 leading-relaxed">${safe(text)}</div>
+  </div>`;
+}
+
+function chatAiBubble(text, flagged) {
+  if (flagged) return `<div class="flex justify-start fadeUp">
+    <div class="max-w-xs md:max-w-sm">
+      <div class="bg-amber-50 border border-amber-200 rounded-2xl rounded-tl-md px-4 py-2.5 text-amber-800">
+        <div class="flex items-center gap-1.5 mb-1.5">
+          <svg class="w-3.5 h-3.5 text-amber-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9"/>
+          </svg>
+          <span class="text-xs font-bold text-amber-700 uppercase tracking-wide">Flagged for HR</span>
+        </div>
+        <p class="leading-relaxed">This question has been flagged for HR — you'll receive an answer soon.</p>
+      </div>
+    </div>
+  </div>`;
+
+  // Extract source citation
+  const srcMatch = text.match(/Source:\s*\[?([^\]\n]+)\]?/i);
+  const src = srcMatch ? srcMatch[1].trim() : null;
+  const clean = src ? text.replace(/Source:\s*\[?[^\]\n]+\]?\s*/i,'').trim() : text;
+
+  return `<div class="flex justify-start fadeUp">
+    <div class="max-w-xs md:max-w-sm">
+      <div class="bg-white border border-gray-200 rounded-2xl rounded-tl-md px-4 py-2.5 text-gray-700 shadow-sm leading-relaxed">${safe(clean)}</div>
+      ${src?`<p class="text-xs text-gray-400 italic mt-1 ml-1">Source: ${safe(src)}</p>`:''}
+    </div>
+  </div>`;
+}
+
+function appendMsg(html) {
+  const win = document.getElementById('chat-window');
+  const empty = document.getElementById('chat-empty');
+  if (empty) empty.style.display = 'none';
+  const d = document.createElement('div');
+  d.innerHTML = html;
+  win.appendChild(d.firstElementChild);
+  win.scrollTop = win.scrollHeight;
+}
+
+async function sendQuestion() {
+  const input = document.getElementById('chat-input');
+  const q = input.value.trim();
+  if (!q || !S.currentHireId) return;
+
+  const sendBtn = document.getElementById('chat-send');
+  sendBtn.disabled = true;
+  input.disabled = true;
+  input.value = '';
+
+  appendMsg(chatUserBubble(q));
+  show('typing-wrap');
+  document.getElementById('chat-window').scrollTop = 99999;
+
+  try {
+    const data = await api(`/onboard/${S.currentHireId}/ask`, {
+      method: 'POST', body: JSON.stringify({ question: q }),
+    });
+    hide('typing-wrap');
+    appendMsg(chatAiBubble(data.answer, data.flagged));
+    S.chatHistory.push({ question: q, answer: data.answer, flagged: data.flagged });
+  } catch(e) {
+    hide('typing-wrap');
+    appendMsg(chatAiBubble('Sorry, something went wrong. Please try again.', false));
+  } finally {
+    sendBtn.disabled = false;
+    input.disabled = false;
+    input.focus();
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// PULSE CHECK
+// ════════════════════════════════════════════════════════════
+function showPulseModal(milestone) {
+  txt('pulse-subtitle', `Day ${milestone} Check-in — required before continuing`);
+  document.getElementById('pulse-modal').dataset.milestone = milestone;
+  ['pulse-q1','pulse-q2','pulse-q3'].forEach(id => document.getElementById(id).value = '');
+  show('pulse-modal');
+  document.body.style.overflow = 'hidden';
+
+  // Block Escape
+  S._escHandler = e => { if(e.key==='Escape'){e.preventDefault();e.stopPropagation();} };
+  document.addEventListener('keydown', S._escHandler, true);
+
+  // Shake on backdrop click
+  document.getElementById('pulse-modal').onclick = e => {
+    if (e.target === document.getElementById('pulse-modal')) {
+      const card = document.querySelector('#pulse-modal > div');
+      card.classList.add('shake');
+      setTimeout(() => card.classList.remove('shake'), 400);
+    }
+  };
+}
+
+async function submitPulse() {
+  const milestone = parseInt(document.getElementById('pulse-modal').dataset.milestone);
+  const q1 = document.getElementById('pulse-q1').value.trim();
+  const q2 = document.getElementById('pulse-q2').value.trim();
+  const q3 = document.getElementById('pulse-q3').value.trim();
+  if (!q1 || !q2 || !q3) { toast('Please answer all three questions', 'warning'); return; }
+
+  const btn = document.getElementById('pulse-submit-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Submitting...';
+
+  try {
+    await api(`/onboard/${S.currentHireId}/pulse`, {
+      method: 'POST', body: JSON.stringify({ day_milestone: milestone, q1, q2, q3 }),
+    });
+    S.submittedMilestones.add(milestone);
+    S.pendingMilestones = S.pendingMilestones.filter(m => m !== milestone);
+
+    hide('pulse-modal');
+    document.body.style.overflow = '';
+    document.removeEventListener('keydown', S._escHandler, true);
+    toast('Thanks for sharing — HR has been notified.', 'success');
+
+    if (S.pendingMilestones.length > 0) {
+      setTimeout(() => showPulseModal(S.pendingMilestones[0]), 900);
+    }
+  } catch(e) {
+    toast('Failed to submit — please try again', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Submit Check-in';
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+ACME Corp Engineering Team Onboarding
+REPOSITORIES AND ACCESS
+All code lives in GitHub under the acmecorp organization. Request access from your tech lead on day 1.
+Your primary repos will be shared in your onboarding Notion page under Engineering > New Hires.
+Never commit secrets, API keys, or credentials to any repository. Use environment variables and 1Password.
+DEVELOPMENT SETUP
+Clone the main repo and follow the README setup instructions. Estimated setup time: 2-4 hours.
+Use Docker for local development. Docker Desktop is pre-installed on your laptop.
+Run into issues? Post in Slack #dev-help — the team is responsive and expects questions from new hires.
+CODE REVIEW PROCESS
+All code requires at least one peer review before merging. Open a PR and tag your tech lead.
+PR titles must follow conventional commits format: feat:, fix:, chore:, docs:
+Aim for small PRs under 400 lines. Reviewers respond within 1 business day.
+DEPLOYMENT
+Staging deployments happen automatically on every PR merge to main.
+Production deployments require a release ticket in Jira and approval from the tech lead.
+Deployment windows are Tuesday and Thursday 2-4pm. No Friday deploys.
+MEETINGS
+Daily standup: 9:30am on Zoom — share what you did, what you will do, any blockers.
+Sprint planning: every 2 weeks Monday 10am.
+Retrospectives: every 2 weeks Friday 3pm.
+Engineering all-hands: first Tuesday of every month.
+FIRST CONTRIBUTION
+Your first task will be a "good first issue" tagged in GitHub — ask your buddy to point you to it.
+Do not worry about being perfect. Ask questions. Making mistakes is expected and safe here.
+Your 30-day goal is to ship one meaningful contribution, however small.
